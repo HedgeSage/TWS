@@ -2,10 +2,11 @@
 import asyncio
 import logging
 import ccxt.pro as ccxt
+import ccxt as ccxt_base # Base package for exceptions
 from typing import Dict, List, Optional
 
 from quant_system.core.event import EventEngine, Event, EventType
-from quant_system.core.types import OrderRequest, OrderData, TickData, Exchange, Direction, OrderType, Instrument, ProductType
+from quant_system.core.types import OrderRequest, OrderData, TickData, Exchange, Direction, OrderType, Instrument, ProductType, OrderStatus, Offset
 from quant_system.exchange.base import BaseExchange
 
 class OkxExchangeAdapter(BaseExchange):
@@ -164,10 +165,10 @@ class OkxExchangeAdapter(BaseExchange):
             self.logger.info(f"Order Placed. ID: {order['id']}")
             return str(order['id'])
             
-        except ccxt.InsufficientFunds as e:
+        except ccxt_base.InsufficientFunds as e:
             self.logger.error(f"Order Rejected: Insufficient Funds. {e}")
             return ""
-        except ccxt.NetworkError as e:
+        except ccxt_base.NetworkError as e:
             self.logger.error(f"Order Failed: Network Error. {e}")
             return ""
         except Exception as e:
@@ -215,7 +216,7 @@ class OkxExchangeAdapter(BaseExchange):
                 
                 self.event_engine.put(Event(EventType.TICK, tick))
                 
-            except ccxt.NetworkError as e:
+            except ccxt_base.NetworkError as e:
                 self.logger.warning(f"Ticker WS Network Error: {e}. Retrying in {retry_delay}s...")
                 await asyncio.sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, 60) # 指数退避
@@ -231,20 +232,78 @@ class OkxExchangeAdapter(BaseExchange):
         retry_delay = 1
         while self._active:
             try:
-                order_data = await self.api.watch_orders()
+                # CCXT watch_orders return a list of orders
+                orders = await self.api.watch_orders()
                 
                 # 重置
                 if retry_delay > 1:
                     retry_delay = 1
                 
-                # 暂时只做 Log
-                if isinstance(order_data, list):
-                    for o in order_data:
-                        self.logger.info(f"[Order Update] {o['symbol']} {o['status']} {o['filled']}/{o['amount']}")
-                else:
-                    self.logger.info(f"[Order Update] {order_data}")
+                for o in orders:
+                    # 转换 Status
+                    status = OrderStatus.SUBMITTED
+                    if o['status'] == 'closed':
+                        status = OrderStatus.FILLED
+                    elif o['status'] == 'canceled':
+                        status = OrderStatus.CANCELLED
+                    elif o['status'] == 'open' and o['filled'] > 0:
+                        status = OrderStatus.PARTIALLY_FILLED
                     
-            except ccxt.NetworkError as e:
+                    # 转换 Direction/Offset
+                    # OKX side=buy/sell, posSide=long/short
+                    # buy+long=OpenLong, sell+long=CloseLong
+                    # sell+short=OpenShort, buy+short=CloseShort
+                    
+                    direction = Direction.LONG
+                    offset = Offset.NONE
+                    
+                    side = o['side'] # buy/sell
+                    # posSide 并不是所有回报都有，需要 fallback
+                    # 如果没有 posSide (比如现货), 则只看 side
+                    # 这里主要适配 Swap
+                    
+                    # 简单推断 (假设是 Swap Hedge Mode)
+                    # 实际上 CCXT 并不一定透传 posSide 到 info 顶层，可能在 info 字典里
+                    raw_pos_side = o['info'].get('posSide')
+                    
+                    if raw_pos_side == 'long':
+                        if side == 'buy':
+                            direction = Direction.LONG
+                            offset = Offset.OPEN
+                        else:
+                            direction = Direction.LONG
+                            offset = Offset.CLOSE
+                    elif raw_pos_side == 'short':
+                        if side == 'sell':
+                            direction = Direction.SHORT
+                            offset = Offset.OPEN
+                        else:
+                            direction = Direction.SHORT
+                            offset = Offset.CLOSE
+                    else:
+                        # 现货或单向模式 fallback
+                        direction = Direction.LONG if side == 'buy' else Direction.SHORT
+                        offset = Offset.NONE
+
+                    order_data = OrderData(
+                        symbol=o['symbol'],
+                        exchange=Exchange.OKX,
+                        order_id=str(o['id']), # ID
+                        exchange_order_id=str(o['id']),
+                        direction=direction,
+                        offset=offset,
+                        type=OrderType.LIMIT, # 简化
+                        price=float(o.get('price') or 0.0),
+                        volume=float(o['amount']),
+                        traded=float(o['filled']),
+                        status=status,
+                        timestamp=o['timestamp'] / 1000.0
+                    )
+                    
+                    self.logger.info(f"Order Update: {order_data.order_id} {status} {order_data.traded}/{order_data.volume}")
+                    self.event_engine.put(Event(EventType.ORDER_STATUS, order_data))
+
+            except ccxt_base.NetworkError as e:
                 self.logger.warning(f"Order WS Network Error: {e}. Retrying in {retry_delay}s...")
                 await asyncio.sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, 60)
