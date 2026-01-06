@@ -1,10 +1,11 @@
+
 import asyncio
 import logging
 import ccxt.pro as ccxt
 from typing import Dict, List, Optional
 
 from quant_system.core.event import EventEngine, Event, EventType
-from quant_system.core.types import OrderRequest, OrderData, TickData, Exchange, Direction, OrderType
+from quant_system.core.types import OrderRequest, OrderData, TickData, Exchange, Direction, OrderType, Instrument, ProductType
 from quant_system.exchange.base import BaseExchange
 
 class OkxExchangeAdapter(BaseExchange):
@@ -24,6 +25,7 @@ class OkxExchangeAdapter(BaseExchange):
             'options': {'defaultType': 'swap'},  # 默认为永续合约
         })
         
+        self.instruments: Dict[str, Instrument] = {}
         self._active = False
         self._ws_task: Optional[asyncio.Task] = None
 
@@ -33,7 +35,46 @@ class OkxExchangeAdapter(BaseExchange):
         # CCXT 需要先加载市场数据才能解析 symbol
         self.logger.info("Loading markets from OKX...")
         await self.api.load_markets()
-        self.logger.info("Markets loaded. OKX Adapter Initialized (CCXT Pro)")
+        
+        # 自动加载元数据
+        self._load_instruments()
+        self.logger.info(f"Markets loaded. Cache Size: {len(self.instruments)}")
+
+    def _load_instruments(self):
+        """从 CCXT markets 加载 Instrument 元数据"""
+        for sym, data in self.api.markets.items():
+            try:
+                # 仅处理 Swap (由于 defaultType='swap'，markets 里应该大所属也是 swap)
+                # data['type'] maybe 'swap', 'future', 'spot'
+                
+                # 映射 ProductType
+                p_type = ProductType.PERP # 默认为 PERP 因为我们在 options 里设了 defaultType=swap
+                if data.get('spot'): p_type = ProductType.SPOT
+                elif data.get('future'): p_type = ProductType.FUTURE
+                elif data.get('swap'): p_type = ProductType.PERP
+                
+                inst = Instrument(
+                    symbol=sym,
+                    exchange=Exchange.OKX,
+                    product_type=p_type,
+                    contract_size=float(data.get('contractSize', 1.0)),
+                    price_tick=float(data['precision']['price']),
+                    min_volume=float(data['limits']['amount']['min']),
+                    # CCXT precision.amount 如果是 float (e.g. 1.0 or 0.001) 直接用
+                    # 如果是 int (e.g. 8) 代表小数位，需要转化。但 OKX 通常返回 float step
+                    volume_tick=float(data['precision']['amount']) 
+                )
+                self.instruments[sym] = inst
+            except Exception as e:
+                pass
+
+    async def init_leverage(self, symbol: str, leverage: int):
+        """设置杠杆倍数"""
+        try:
+            await self.api.set_leverage(leverage, symbol)
+            self.logger.info(f"Leverage Set: {symbol} -> {leverage}x")
+        except Exception as e:
+            self.logger.warning(f"Set Leveraged Failed: {e}")
 
     async def close(self) -> None:
         self._active = False
@@ -77,11 +118,25 @@ class OkxExchangeAdapter(BaseExchange):
 
     async def send_order(self, req: OrderRequest) -> str:
         """
-        发送订单
+        发送订单 (自动修剪精度)
         """
         if not self._active:
             self.logger.warning("Adapter not connected")
             return ""
+
+        # 0. 自动修剪精度 (Auto Rounding)
+        inst = self.instruments.get(req.symbol)
+        if inst:
+            original_price = req.price
+            original_vol = req.volume
+            
+            req.price = inst.round_price(req.price)
+            req.volume = inst.round_volume(req.volume)
+            
+            if req.price != original_price or req.volume != original_vol:
+                self.logger.info(f"Rounding: {req.symbol} P:{original_price}->{req.price} V:{original_vol}->{req.volume}")
+        else:
+            self.logger.warning(f"Instrument not found in cache: {req.symbol}, skip rounding")
 
         # 映射方向
         side = 'buy' if req.direction == Direction.LONG else 'sell'

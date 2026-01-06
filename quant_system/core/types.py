@@ -55,10 +55,32 @@ class Instrument:
     contract_size: float    # 合约乘数 (1张合约对应多少标的)
     price_tick: float       # 最小价格变动
     
+    min_volume: float = 1.0   # 最小下单量
+    volume_tick: float = 1.0  # 下单量步长
+    
     # 可选字段
     expiry_date: Optional[datetime] = None  # 过期日
     option_strike: Optional[float] = None   # 行权价 (仅期权)
     underlying: str = ""                    # 标的物代码
+
+    def round_price(self, price: float) -> float:
+        """
+        价格修剪: 按照 price_tick 四舍五入
+        Example: price=95000.123, tick=0.1 -> 95000.1
+        """
+        if self.price_tick <= 0:
+            return price
+        return round(price / self.price_tick) * self.price_tick
+
+    def round_volume(self, volume: float) -> float:
+        """
+        数量修剪: 按照 volume_tick 截断/四舍五入
+        通常建议向下取整以防止超买，但这里遵循标准四舍五人，策略层需自行留buffer
+        """
+        if self.volume_tick <= 0:
+            return volume
+        # 使用 round 确保最接近的合法 tick
+        return round(volume / self.volume_tick) * self.volume_tick
 
 @dataclass
 class TickData:
