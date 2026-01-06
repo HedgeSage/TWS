@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-from quant_system.core.event import EventEngine
+from quant_system.core.event import EventEngine, EventType, Event
 from quant_system.exchange.okx_adapter import OkxExchangeAdapter
 
 # 设置日志格式
@@ -10,39 +10,42 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 
+def on_tick(event: Event):
+    tick = event.data
+    # 打印标准化后的 TickData
+    print(f"✅ [Tick Received] {tick.symbol} Price:{tick.last_price} Bid:{tick.bid_price_1} Ask:{tick.ask_price_1}")
+
 async def main():
     """
-    手动测试脚本: 验证能否连接 OKX 并收到 Ticker 推送
+    手动测试脚本 v2: 验证 Ticker 解析功能
     """
-    # 1. 配置 (即使是空的 Key，CCXT 也可以推送 Public Ticker)
     config = {
         "api_key": os.getenv("OKX_API_KEY", ""),
         "secret_key": os.getenv("OKX_SECRET", ""),
         "passphrase": os.getenv("OKX_PASSPHRASE", "")
     }
     
-    # 2. 初始化
     engine = EventEngine()
+    engine.start()
+    
+    # 注册回调
+    engine.register(EventType.TICK, on_tick)
+
     adapter = OkxExchangeAdapter(engine, config)
     
     try:
         await adapter.connect()
-        
-        # 3. 订阅 BTC 永续
-        # 注意: CCXT 的 Symbol 格式通常是 "BTC/USDT:USDT" (Swap)
-        # 我们先用 CCXT 标准格式测试，后续再做 Symbol 映射
         target_symbol = "BTC/USDT:USDT" 
         await adapter.subscribe([target_symbol])
         
-        print("Connected. Waiting for data... (Press Ctrl+C to stop)")
-        
-        # 4. 保持运行 10秒 看看效果
+        print("Connected. Waiting for Standardized Ticks... (Press Ctrl+C to stop)")
         await asyncio.sleep(10)
         
     except KeyboardInterrupt:
         pass
     finally:
         await adapter.close()
+        engine.stop()
 
 if __name__ == "__main__":
     asyncio.run(main())
