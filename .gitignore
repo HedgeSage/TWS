@@ -1,0 +1,26 @@
+# General
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+.env
+.venv
+venv/
+env/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Project Specific
+logs/
+data/
+config.yaml
+!config.yaml.example

@@ -1,0 +1,43 @@
+[project]
+name = "quant_system"
+version = "0.1.0"
+description = "A robust quantitative trading system with Event Bus and State Machine architecture."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "ccxt>=4.0.0",
+    "pydantic>=2.0.0",
+    "aiohttp>=3.8.0",
+    "pyyaml>=6.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.20.0",
+    "pandas>=2.0.0",
+    "faker>=19.0.0",
+    "mypy>=1.0.0",
+    "black>=23.0.0",
+    "isort>=5.0.0",
+    "ruff>=0.0.200"
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.isort]
+profile = "black"
+
+[tool.black]
+line-length = 88
+target-version = ['py310']
+
+[tool.mypy]
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
