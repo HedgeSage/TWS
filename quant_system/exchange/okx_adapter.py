@@ -152,7 +152,6 @@ class OkxExchangeAdapter(BaseExchange):
             self.logger.info(f"Sending Order: {req.symbol} {side} {req.price}@{req.volume} posSide={pos_side}")
             
             # 调用 CCXT create_order
-            # 注意: OKX Swap 的 amount 单位是合约张数
             order = await self.api.create_order(
                 symbol=req.symbol,
                 type=order_type,
@@ -165,8 +164,14 @@ class OkxExchangeAdapter(BaseExchange):
             self.logger.info(f"Order Placed. ID: {order['id']}")
             return str(order['id'])
             
+        except ccxt.InsufficientFunds as e:
+            self.logger.error(f"Order Rejected: Insufficient Funds. {e}")
+            return ""
+        except ccxt.NetworkError as e:
+            self.logger.error(f"Order Failed: Network Error. {e}")
+            return ""
         except Exception as e:
-            self.logger.error(f"Send Order Failed: {e}")
+            self.logger.error(f"Order Failed: {e}")
             return ""
 
     async def cancel_order(self, order_id: str, symbol: str) -> None:
@@ -184,12 +189,18 @@ class OkxExchangeAdapter(BaseExchange):
         """
         主监听循环 (Tickers)
         """
+        retry_delay = 1
         while self._active:
             try:
                 # 这一步会挂起，直到收到交易所推送
                 symbol = symbols[0]
                 ccxt_ticker = await self.api.watch_ticker(symbol)
                 
+                # 重置重连延迟
+                if retry_delay > 1:
+                    retry_delay = 1
+                    self.logger.info("WS Connection Recovered")
+
                 # 阶段 6.2: 解析并推送 TickData
                 tick = TickData(
                     symbol=symbol,
@@ -202,20 +213,29 @@ class OkxExchangeAdapter(BaseExchange):
                     funding_rate=0.0 
                 )
                 
-                # self.logger.debug(f"Tick: {tick.symbol} {tick.last_price}")
                 self.event_engine.put(Event(EventType.TICK, tick))
                 
+            except ccxt.NetworkError as e:
+                self.logger.warning(f"Ticker WS Network Error: {e}. Retrying in {retry_delay}s...")
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 60) # 指数退避
+                
             except Exception as e:
-                self.logger.error(f"Watch Loop Error: {e}")
+                self.logger.error(f"Ticker Loop Error: {e}")
                 await asyncio.sleep(5)
 
     async def _watch_orders_loop(self):
         """
         监听私有订单回报
         """
+        retry_delay = 1
         while self._active:
             try:
                 order_data = await self.api.watch_orders()
+                
+                # 重置
+                if retry_delay > 1:
+                    retry_delay = 1
                 
                 # 暂时只做 Log
                 if isinstance(order_data, list):
@@ -224,6 +244,11 @@ class OkxExchangeAdapter(BaseExchange):
                 else:
                     self.logger.info(f"[Order Update] {order_data}")
                     
+            except ccxt.NetworkError as e:
+                self.logger.warning(f"Order WS Network Error: {e}. Retrying in {retry_delay}s...")
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 60)
+                
             except Exception as e:
                 self.logger.error(f"Order Watch Error: {e}")
                 await asyncio.sleep(5)
