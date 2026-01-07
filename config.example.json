@@ -3,21 +3,43 @@
         "log_level": "INFO",
         "env": "prod"
     },
-    "exchange": {
-        "name": "okx",
-        "market_type": "SWAP",
-        "api_key": "${OKX_API_KEY}",
-        "secret": "${OKX_SECRET}",
-        "passphrase": "${OKX_PASSPHRASE}"
-    },
-    "strategy": {
-        "name": "DynamicRebalance",
-        "symbols": [
-            "BTC/USDT:USDT"
-        ],
-        "parameters": {
-            "leverage": 10,
-            "lot_size": 0.01
+    "accounts": {
+        "account1": {
+            "exchange": {
+                "name": "okx",
+                "market_type": "SWAP",
+                "api_key": "${OKX_API_KEY_1}",
+                "secret": "${OKX_SECRET_1}",
+                "passphrase": "${OKX_PASSPHRASE_1}"
+            },
+            "strategy": {
+                "name": "DynamicRebalance",
+                "symbols": [
+                    "BTC/USDT:USDT"
+                ],
+                "parameters": {
+                    "leverage": 10,
+                    "lot_size": 0.01
+                }
+            }
+        },
+        "account2": {
+            "exchange": {
+                "name": "okx",
+                "market_type": "SWAP",
+                "api_key": "${OKX_API_KEY_2}",
+                "secret": "${OKX_SECRET_2}",
+                "passphrase": "${OKX_PASSPHRASE_2}"
+            },
+            "strategy": {
+                "name": "DualMA",
+                "symbols": [
+                    "ETH/USDT:USDT"
+                ],
+                "parameters": {
+                    "leverage": 5
+                }
+            }
         }
     }
 }

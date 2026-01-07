@@ -1,0 +1,24 @@
+[Unit]
+Description=TWS Quantitative Strategy Node (%i)
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/tws
+
+# Multi-Strategy Config Mapping
+# Usage: systemctl start tws@account1
+# This will load config.json and select 'account1'
+ExecStart=/usr/bin/python3 -m quant_system.main --config config.json --account %i
+
+# Auto Restart on Crash
+Restart=always
+RestartSec=5
+
+# Logging
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=tws-%i
+
+[Install]
+WantedBy=multi-user.target
