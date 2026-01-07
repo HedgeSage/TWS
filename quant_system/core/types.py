@@ -148,3 +148,14 @@ class TradeData:
     price: float
     volume: float
     timestamp: float
+
+@dataclass
+class PositionData:
+    """持仓数据 (快照)"""
+    symbol: str
+    exchange: Exchange
+    direction: Direction # LONG or SHORT
+    volume: float      # 持仓数量 (绝对值, >0)
+    price: float       # 持仓均价
+    pnl: float = 0.0   # 浮动盈亏
+    frozen: float = 0.0 # 冻结数量 (挂单未成)

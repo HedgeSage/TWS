@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List, Optional
 
 from quant_system.core.event import EventEngine
-from quant_system.core.types import OrderRequest, OrderData
+from quant_system.core.types import OrderRequest, OrderData, PositionData
 
 class BaseExchange(ABC):
     """
@@ -38,4 +38,14 @@ class BaseExchange(ABC):
     @abstractmethod
     async def cancel_order(self, order_id: str, symbol: str) -> None:
         """撤销订单"""
+        pass
+
+    @abstractmethod
+    async def query_position(self) -> List[PositionData]:
+        """查询当前持仓 (全量)"""
+        pass
+
+    @abstractmethod
+    async def query_open_orders(self) -> List[OrderData]:
+        """查询当前挂单 (全量)"""
         pass

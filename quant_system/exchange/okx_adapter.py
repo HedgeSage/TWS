@@ -6,7 +6,7 @@ import ccxt as ccxt_base # Base package for exceptions
 from typing import Dict, List, Optional
 
 from quant_system.core.event import EventEngine, Event, EventType
-from quant_system.core.types import OrderRequest, OrderData, TickData, Exchange, Direction, OrderType, Instrument, ProductType, OrderStatus, Offset
+from quant_system.core.types import OrderRequest, OrderData, TickData, Exchange, Direction, OrderType, Instrument, ProductType, OrderStatus, Offset, PositionData
 from quant_system.exchange.base import BaseExchange
 
 class OkxExchangeAdapter(BaseExchange):
@@ -186,6 +186,104 @@ class OkxExchangeAdapter(BaseExchange):
         except Exception as e:
             self.logger.error(f"Cancel Order Failed: {e}")
 
+    def _parse_order_data(self, o: dict) -> OrderData:
+        """统一解析 CCXT 订单格式"""
+        # 转换 Status
+        status = OrderStatus.SUBMITTED
+        if o['status'] == 'closed':
+            status = OrderStatus.FILLED
+        elif o['status'] == 'canceled':
+            status = OrderStatus.CANCELLED
+        elif o['status'] == 'open' and o['filled'] > 0:
+            status = OrderStatus.PARTIALLY_FILLED
+        
+        # 转换 Direction/Offset
+        direction = Direction.LONG
+        offset = Offset.NONE
+        
+        side = o['side'] # buy/sell
+        # info.posSide for Swap Hedge
+        raw_pos_side = o['info'].get('posSide')
+        
+        if raw_pos_side == 'long':
+            if side == 'buy':
+                direction = Direction.LONG
+                offset = Offset.OPEN
+            else:
+                direction = Direction.LONG
+                offset = Offset.CLOSE
+        elif raw_pos_side == 'short':
+            if side == 'sell':
+                direction = Direction.SHORT
+                offset = Offset.OPEN
+            else:
+                direction = Direction.SHORT
+                offset = Offset.CLOSE
+        else:
+            # Fallback
+            direction = Direction.LONG if side == 'buy' else Direction.SHORT
+            offset = Offset.NONE
+
+        return OrderData(
+            symbol=o['symbol'],
+            exchange=Exchange.OKX,
+            order_id=str(o['id']),
+            exchange_order_id=str(o['id']),
+            direction=direction,
+            offset=offset,
+            type=OrderType.LIMIT,
+            price=float(o.get('price') or 0.0),
+            volume=float(o['amount']),
+            traded=float(o['filled']),
+            status=status,
+            timestamp=o['timestamp'] / 1000.0
+        )
+
+    async def query_position(self) -> List[PositionData]:
+        """查询当前持仓 (REST API)"""
+        try:
+            raw_positions = await self.api.fetch_positions()
+            results = []
+            
+            for p in raw_positions:
+                vol = float(p['contracts'])
+                if vol <= 0:
+                    continue
+                    
+                direction = Direction.LONG if p['side'] == 'long' else Direction.SHORT
+                price = float(p.get('entryPrice') or 0.0)
+                
+                pos_data = PositionData(
+                    symbol=p['symbol'],
+                    exchange=Exchange.OKX,
+                    direction=direction,
+                    volume=vol,
+                    price=price,
+                    pnl=float(p.get('unrealizedPnl') or 0.0),
+                    frozen=0.0
+                )
+                results.append(pos_data)
+            
+            self.logger.info(f"Query Position Success: {len(results)} active positions.")
+            return results
+        except Exception as e:
+            self.logger.error(f"Query Position Failed: {e}")
+            return []
+
+    async def query_open_orders(self) -> List[OrderData]:
+        """查询当前挂单 (REST API)"""
+        try:
+            raw_orders = await self.api.fetch_open_orders()
+            results = []
+            for o in raw_orders:
+                 results.append(self._parse_order_data(o))
+            
+            self.logger.info(f"Query Open Orders Success: {len(results)} orders.")
+            return results
+        except Exception as e:
+            self.logger.error(f"Query Open Orders Failed: {e}")
+            return []
+
     async def _watch_loop(self, symbols: List[str]):
         """
         主监听循环 (Tickers)
@@ -201,6 +299,8 @@ class OkxExchangeAdapter(BaseExchange):
                 if retry_delay > 1:
                     retry_delay = 1
                     self.logger.info("WS Connection Recovered")
+                    # 触发恢复事件
+                    self.event_engine.put(Event(EventType.RECOVERY, None))
 
                 # 阶段 6.2: 解析并推送 TickData
                 tick = TickData(
@@ -240,67 +340,8 @@ class OkxExchangeAdapter(BaseExchange):
                     retry_delay = 1
                 
                 for o in orders:
-                    # 转换 Status
-                    status = OrderStatus.SUBMITTED
-                    if o['status'] == 'closed':
-                        status = OrderStatus.FILLED
-                    elif o['status'] == 'canceled':
-                        status = OrderStatus.CANCELLED
-                    elif o['status'] == 'open' and o['filled'] > 0:
-                        status = OrderStatus.PARTIALLY_FILLED
-                    
-                    # 转换 Direction/Offset
-                    # OKX side=buy/sell, posSide=long/short
-                    # buy+long=OpenLong, sell+long=CloseLong
-                    # sell+short=OpenShort, buy+short=CloseShort
-                    
-                    direction = Direction.LONG
-                    offset = Offset.NONE
-                    
-                    side = o['side'] # buy/sell
-                    # posSide 并不是所有回报都有，需要 fallback
-                    # 如果没有 posSide (比如现货), 则只看 side
-                    # 这里主要适配 Swap
-                    
-                    # 简单推断 (假设是 Swap Hedge Mode)
-                    # 实际上 CCXT 并不一定透传 posSide 到 info 顶层，可能在 info 字典里
-                    raw_pos_side = o['info'].get('posSide')
-                    
-                    if raw_pos_side == 'long':
-                        if side == 'buy':
-                            direction = Direction.LONG
-                            offset = Offset.OPEN
-                        else:
-                            direction = Direction.LONG
-                            offset = Offset.CLOSE
-                    elif raw_pos_side == 'short':
-                        if side == 'sell':
-                            direction = Direction.SHORT
-                            offset = Offset.OPEN
-                        else:
-                            direction = Direction.SHORT
-                            offset = Offset.CLOSE
-                    else:
-                        # 现货或单向模式 fallback
-                        direction = Direction.LONG if side == 'buy' else Direction.SHORT
-                        offset = Offset.NONE
-
-                    order_data = OrderData(
-                        symbol=o['symbol'],
-                        exchange=Exchange.OKX,
-                        order_id=str(o['id']), # ID
-                        exchange_order_id=str(o['id']),
-                        direction=direction,
-                        offset=offset,
-                        type=OrderType.LIMIT, # 简化
-                        price=float(o.get('price') or 0.0),
-                        volume=float(o['amount']),
-                        traded=float(o['filled']),
-                        status=status,
-                        timestamp=o['timestamp'] / 1000.0
-                    )
-                    
-                    self.logger.info(f"Order Update: {order_data.order_id} {status} {order_data.traded}/{order_data.volume}")
+                    order_data = self._parse_order_data(o)
+                    self.logger.info(f"Order Update: {order_data.order_id} {order_data.status} {order_data.traded}/{order_data.volume}")
                     self.event_engine.put(Event(EventType.ORDER_STATUS, order_data))
 
             except ccxt_base.NetworkError as e:

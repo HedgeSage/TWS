@@ -17,6 +17,7 @@ class EventType:
     TRADE = "eTrade"           # 成交回报 -> Payload: TradeData
     LOG = "eLog"               # 日志事件 -> Payload: LogData (Dict)
     ERROR = "eError"           # 异常事件 -> Payload: ErrorData (Dict)
+    RECOVERY = "eRecovery"     # 恢复事件 -> Payload: None (Signal)
 
 @dataclass
 class Event:

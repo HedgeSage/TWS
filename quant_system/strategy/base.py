@@ -36,6 +36,8 @@ class BaseStrategy(ABC):
         """
         self.engine.register(EventType.TICK, self._on_tick_wrapper)
         self.engine.register(EventType.ORDER_STATUS, self._on_order_status_wrapper)
+        # 注册恢复事件
+        self.engine.register(EventType.RECOVERY, self._on_recovery_wrapper)
         
         await self.exchange.subscribe(self.symbols)
         self.on_start()
@@ -44,6 +46,7 @@ class BaseStrategy(ABC):
         """停止策略"""
         self.engine.unregister(EventType.TICK, self._on_tick_wrapper)
         self.engine.unregister(EventType.ORDER_STATUS, self._on_order_status_wrapper)
+        self.engine.unregister(EventType.RECOVERY, self._on_recovery_wrapper)
         self.on_stop()
 
     # --- 用户接口 ---
@@ -55,11 +58,79 @@ class BaseStrategy(ABC):
     def on_order_status(self, order: OrderData):
         pass
     
+    async def on_recovery(self):
+        """
+        [New in 7.4] 灾难恢复钩子
+        在系统完成自动对账(持仓/挂单)后触发。
+        """
+        pass
+    
     def on_start(self):
         pass
     
     def on_stop(self):
         pass
+
+    # --- 恢复逻辑 (Reconciliation) ---
+
+    async def _on_recovery_wrapper(self, event: Event):
+        """处理恢复事件"""
+        self.logger.warning("Recovery Event Received! Starting Reconciliation...")
+        
+        # 1. 对账持仓
+        await self._reconcile_position()
+        
+        # 2. 对账挂单
+        await self._reconcile_open_orders()
+        
+        # 3. 用户钩子
+        await self.on_recovery()
+        self.logger.info("Reconciliation Complete.")
+
+    async def _reconcile_position(self):
+        """强制同步持仓"""
+        active_positions = await self.exchange.query_position()
+        # 筛选本策略关心的
+        net_pos = 0.0
+        for p in active_positions:
+            if p.symbol in self.symbols:
+                # 简单累加 (Hedge Mode: Long - Short)
+                # PositionData has direction, volume
+                if p.direction == Direction.LONG:
+                    net_pos += p.volume
+                elif p.direction == Direction.SHORT:
+                    net_pos -= p.volume
+                    
+        old_pos = self.pos
+        self.pos = net_pos # 强制覆盖
+        if abs(old_pos - net_pos) > 0.0001:
+            self.logger.warning(f"Position Reconciled: Local {old_pos} -> Remote {net_pos}")
+
+    async def _reconcile_open_orders(self):
+        """强制同步挂单"""
+        open_orders = await self.exchange.query_open_orders()
+        
+        # 重建 active_orders
+        # 注意: 这里会丢失部分历史订单的本地缓存(prev_traded)，但为了正确性必须重置
+        
+        current_ids = set()
+        for o in open_orders:
+            if o.symbol in self.symbols:
+                self.active_orders[o.order_id] = o
+                self.orders[o.order_id] = o # 更新缓存
+                current_ids.add(o.order_id)
+        
+        # 清理不在列表中的
+        to_remove = []
+        for oid in self.active_orders:
+            if oid not in current_ids:
+                to_remove.append(oid)
+        
+        for oid in to_remove:
+            del self.active_orders[oid]
+            # 标记为未知关闭? 暂时不动 active_orders 以外的 self.orders
+            
+        self.logger.info(f"Open Orders Reconciled. Active: {len(self.active_orders)}")
 
     async def set_target_position(self, target: float, symbol: str, price: float):
         """
