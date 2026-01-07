@@ -33,9 +33,16 @@ class OkxExchangeAdapter(BaseExchange):
     async def connect(self) -> None:
         """建立连接并启动监听循环"""
         self._active = True
-        # CCXT 需要先加载市场数据才能解析 symbol
-        self.logger.info("Loading markets from OKX...")
-        await self.api.load_markets()
+        # Custom Market Loading (Memory Optimization)
+        market_type = self.config.get('market_type')
+        params = {}
+        if market_type:
+             params['instType'] = market_type
+             self.logger.info(f"Loading markets from OKX (instType={market_type})...")
+        else:
+             self.logger.info("Loading ALL markets from OKX...")
+             
+        await self.api.load_markets(True, params)
         
         # 自动加载元数据
         self._load_instruments()
