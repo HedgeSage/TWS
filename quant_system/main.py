@@ -58,17 +58,27 @@ class TradingSystem:
             self.exchange, 
             strat_conf['symbols']
         )
-        # Inject custom parameters if needed by strategy
-        # self.strategy.parameters = strat_conf.get('parameters', {})
         
         self.is_running = True
 
     def setup_logging(self):
+        from datetime import datetime
+        import os
+        
+        # Ensure logs directory exists
+        log_dir = "logs"
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+
         log_level = self.system_config.get('log_level', 'INFO')
+        log_filename = f"{log_dir}/TWS_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        
         logging.basicConfig(
             level=getattr(logging, log_level.upper()),
             format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-            handlers=[logging.StreamHandler()]
+            handlers=[
+                logging.FileHandler(log_filename)
+            ]
         )
 
     async def run(self):

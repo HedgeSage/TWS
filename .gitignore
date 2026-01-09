@@ -1,5 +1,11 @@
 # General
 __pycache__/
+dist/
+build/
+*.whl
+*.tar.gz
+*.log
+*.egg-info/
 *.pyc
 *.pyo
 *.pyd

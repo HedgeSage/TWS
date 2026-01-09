@@ -33,7 +33,7 @@ class EventEngine:
     负责将事件分发给注册的回调函数，不包含任何业务逻辑。
     """
     def __init__(self) -> None:
-        self._queue: asyncio.Queue[Event] = asyncio.Queue()
+        self._queue: Optional[asyncio.Queue[Event]] = None
         self._handlers: Dict[str, List[HandlerType]] = defaultdict(list)
         self._active: bool = False
         self._task: Union[asyncio.Task[Any], None] = None
@@ -43,6 +43,10 @@ class EventEngine:
         """启动事件处理循环"""
         if self._active:
             return
+            
+        if self._queue is None:
+            self._queue = asyncio.Queue()
+            
         self._active = True
         self._task = asyncio.create_task(self._run())
         self.logger.info("EventEngine started")
@@ -75,7 +79,8 @@ class EventEngine:
         Asyncio Queue is checking loop thread safety. Ideally call internal put_nowait.
         如果从其他线程调用，需要用 loop.call_soon_threadsafe，这里暂时假设单线程或协程环境。
         """
-        self._queue.put_nowait(event)
+        if self._queue is not None:
+            self._queue.put_nowait(event)
 
     async def _run(self) -> None:
         """事件处理主循环"""

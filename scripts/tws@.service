@@ -12,8 +12,9 @@ WorkingDirectory=/home/ubuntu/tws
 ExecStart=/usr/bin/python3 -m quant_system.main --config config.json --account %i
 
 # Auto Restart on Crash
-Restart=always
-RestartSec=5
+# Disabled for safety (prevent continuous loss on logic error)
+Restart=no
+# RestartSec=5
 
 # Logging
 StandardOutput=syslog

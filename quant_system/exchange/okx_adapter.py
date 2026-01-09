@@ -21,7 +21,7 @@ class OkxExchangeAdapter(BaseExchange):
         # 初始化 CCXT 实例
         self.api = ccxt.okx({
             'apiKey': config.get('api_key'),
-            'secret': config.get('secret_key'),
+            'secret': config.get('secret'),
             'password': config.get('passphrase'),
             'options': {'defaultType': 'swap'},  # 默认为永续合约
         })
@@ -96,12 +96,9 @@ class OkxExchangeAdapter(BaseExchange):
         验证 API Key 是否有效 (通过拉取一次历史订单)
         """
         try:
-            # 拉取最近 1 条历史订单 (OKX 不支持通用的 fetch_orders)
-            orders = await self.api.fetch_closed_orders(limit=1)
-            self.logger.info(f"Login Check Passed. History Orders: {len(orders)}")
-            if orders:
-                last_o = orders[0]
-                self.logger.info(f"Last Order: {last_o['symbol']} {last_o['side']} {last_o['status']}")
+            # 验证 API Key 是否有效 (通过拉取账户余额)
+            balance = await self.api.fetch_balance()
+            self.logger.info(f"Login Check Passed. Total Equity: {balance.get('total', {}).get('USDT', 0)}")
             return True
         except Exception as e:
             self.logger.error(f"Login Check Failed: {e}")
@@ -305,7 +302,7 @@ class OkxExchangeAdapter(BaseExchange):
                 # 重置重连延迟
                 if retry_delay > 1:
                     retry_delay = 1
-                    self.logger.info("WS Connection Recovered")
+                    self.logger.debug("WS Connection Recovered")
                     # 触发恢复事件
                     self.event_engine.put(Event(EventType.RECOVERY, None))
 

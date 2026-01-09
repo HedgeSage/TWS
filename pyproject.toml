@@ -7,7 +7,7 @@ name = "tws-quant"
 version = "0.1.0"
 description = "TWS Quantitative Trading System"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 authors = [
   { name = "TWS Team" },
 ]
@@ -16,9 +16,10 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "ccxt>=4.0.0",
+    "ccxt>=4.0.0,<4.5.0",
     "python-dotenv>=1.0.0",
-    "pyyaml"  # Optional, but good if we switch
+    "pyyaml",  # Optional, but good if we switch
+    "pydantic>=2.0.0"
 ]
 
 [project.scripts]

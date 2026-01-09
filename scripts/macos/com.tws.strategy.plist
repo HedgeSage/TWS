@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Label: 服务的唯一标识符 -->
+    <key>Label</key>
+    <string>com.tws.strategy.{{ACCOUNT}}</string>
+
+    <!-- ProgramArguments: 启动命令 -->
+    <key>ProgramArguments</key>
+    <array>
+        <!-- 使用 caffeinate -s 防止系统休眠 -->
+        <string>/usr/bin/caffeinate</string>
+        <string>-s</string>
+        <string>{{PYTHON_EXEC}}</string>
+        <string>-m</string>
+        <string>quant_system.main</string>
+        <string>--config</string>
+        <string>config.json</string>
+        <string>--account</string>
+        <string>{{ACCOUNT}}</string>
+    </array>
+
+    <!-- WorkingDirectory: 工作目录 -->
+    <key>WorkingDirectory</key>
+    <string>{{PROJECT_ROOT}}</string>
+
+    <!-- RunAtLoad: 登录时是否自动启动 -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- KeepAlive: 是否崩溃后自动重启 -->
+    <!-- 设置为 false 以禁用自动重启 (Risk Control) -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- StandardOutPath & StandardErrorPath: 日志路径 -->
+    <key>StandardOutPath</key>
+    <string>{{PROJECT_ROOT}}/logs/tws.{{ACCOUNT}}.out</string>
+    <key>StandardErrorPath</key>
+    <string>{{PROJECT_ROOT}}/logs/tws.{{ACCOUNT}}.err</string>
+
+    <!-- EnvironmentVariables: 环境变量 (可选) -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+</dict>
+</plist>

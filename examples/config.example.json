@@ -1,0 +1,27 @@
+{
+    "system": {
+        "log_level": "INFO",
+        "env": "prod"
+    },
+    "accounts": {
+        "sub06": {
+            "exchange": {
+                "name": "okx",
+                "market_type": "SWAP",
+                "api_key": "${OKX_API_KEY}",
+                "secret": "${OKX_SECRET}",
+                "passphrase": "${OKX_PASSPHRASE}"
+            },
+            "strategy": {
+                "name": "DynamicRebalance",
+                "symbols": [
+                    "WLD/USDT:USDT"
+                ],
+                "parameters": {
+                    "leverage": 10,
+                    "lot_size": 0.01
+                }
+            }
+        }
+    }
+}
